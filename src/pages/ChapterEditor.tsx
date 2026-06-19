@@ -32,8 +32,11 @@ export default function ChapterEditor() {
     lockChapter,
     unlockChapter,
     createVersion,
+    createChapter,
     checkConflicts,
     resolveConflict,
+    checkExpiredLocks,
+    autoSaveWithVersion,
     getCharactersForChapter,
     getPlotPointsForChapter,
     currentUser,
@@ -71,6 +74,24 @@ export default function ChapterEditor() {
     }
   }, [currentChapter, currentUser.id, checkConflicts]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkExpiredLocks();
+      const state = useAppStore.getState();
+      if (state.currentChapter) {
+        const chapter = state.chapters.find(c => c.id === state.currentChapter?.id);
+        if (chapter) {
+          const stillLocked = chapter.lock?.userId === currentUser.id;
+          setIsLockedByMe(stillLocked);
+        }
+      }
+    }, 10000);
+
+    checkExpiredLocks();
+
+    return () => clearInterval(interval);
+  }, [checkExpiredLocks, currentUser.id]);
+
   const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
     
@@ -78,7 +99,7 @@ export default function ChapterEditor() {
     
     const timer = setTimeout(async () => {
       if (currentChapter && isLockedByMe) {
-        await updateChapterContent(currentChapter.id, newContent);
+        await autoSaveWithVersion(currentChapter.id, newContent);
         setLastSaved(new Date());
         if (currentChapter.id) {
           const newConflicts = await checkConflicts(currentChapter.id);
@@ -88,7 +109,15 @@ export default function ChapterEditor() {
     }, 2000);
     
     setAutoSaveTimer(timer);
-  }, [currentChapter, isLockedByMe, autoSaveTimer, updateChapterContent, checkConflicts]);
+  }, [currentChapter, isLockedByMe, autoSaveTimer, autoSaveWithVersion, checkConflicts]);
+
+  const handleCreateChapter = async () => {
+    if (!projectId) return;
+    const title = prompt('请输入新章节标题：');
+    if (!title?.trim()) return;
+    const newChapter = await createChapter(projectId, title.trim());
+    window.location.href = `/projects/${projectId}/chapters/${newChapter.id}`;
+  };
 
   const handleLock = async () => {
     if (!currentChapter) return;
@@ -173,7 +202,10 @@ export default function ChapterEditor() {
               );
             })}
           </div>
-          <button className="mt-4 btn-secondary w-full flex items-center justify-center gap-2 text-sm">
+          <button
+            onClick={handleCreateChapter}
+            className="mt-4 btn-secondary w-full flex items-center justify-center gap-2 text-sm"
+          >
             <Plus className="w-4 h-4" />
             新建章节
           </button>

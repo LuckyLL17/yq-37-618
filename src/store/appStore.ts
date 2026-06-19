@@ -48,13 +48,16 @@ interface AppState {
   checkConflicts: (chapterId: string) => Promise<ConflictWarning[]>;
   resolveConflict: (conflictId: string) => void;
   exportToPdf: (config: PdfExportConfig) => Promise<void>;
+  createProject: (title: string, description: string) => Promise<Project>;
   createChapter: (projectId: string, title: string, parentId?: string) => Promise<Chapter>;
   updateChapterTitle: (chapterId: string, title: string) => void;
-  createCharacter: (character: Omit<Character, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Character>;
+  createCharacter: (character: Omit<Character, 'id' | 'createdAt' | 'updatedAt' | 'relationships' | 'appearances'> & { relationships?: CharacterRelation[]; appearances?: CharacterAppearance[] }) => Promise<Character>;
   updateCharacter: (characterId: string, updates: Partial<Character>) => void;
-  createPlotPoint: (plotPoint: Omit<PlotPoint, 'id' | 'createdAt'>) => Promise<PlotPoint>;
+  createPlotPoint: (plotPoint: Omit<PlotPoint, 'id' | 'createdAt' | 'hints'> & { hints?: PlotHint[] }) => Promise<PlotPoint>;
   updatePlotPoint: (plotPointId: string, updates: Partial<PlotPoint>) => void;
   addPlotHint: (plotPointId: string, hint: Omit<PlotPoint['hints'][0], 'id' | 'createdAt'>) => void;
+  checkExpiredLocks: () => void;
+  autoSaveWithVersion: (chapterId: string, content: string) => Promise<void>;
 }
 
 const dmp = new diff_match_patch();
@@ -215,6 +218,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!chapter) return [];
 
     const warnings: ConflictWarning[] = [];
+    const content = chapter.content;
+
+    const fuzzyMatch = (text: string, pattern: string): boolean => {
+      if (!pattern || pattern.length < 2) return false;
+      if (text.includes(pattern)) return true;
+      const keyWords = pattern.split(/[\s,，。.；;！!？?、]+/).filter(w => w.length >= 2);
+      const matchCount = keyWords.filter(kw => text.includes(kw)).length;
+      return matchCount >= Math.ceil(keyWords.length * 0.6) && keyWords.length > 0;
+    };
 
     state.plotPoints.forEach(plotPoint => {
       if (plotPoint.status === 'resolved') return;
@@ -224,54 +236,99 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (relatedHints.length > 0 || isRelatedChapter) {
         plotPoint.hints.forEach(hint => {
-          if (hint.chapterId === chapterId && chapter.content.includes(hint.hintText)) {
-            const lines = chapter.content.split('\n');
-            let lineNumber = -1;
-            lines.forEach((line, idx) => {
-              if (line.includes(hint.hintText.slice(0, 20))) {
-                lineNumber = idx + 1;
-              }
-            });
+          if (hint.chapterId === chapterId) {
+            const isMentioned = fuzzyMatch(content, hint.hintText);
+            if (isMentioned) {
+              const hintKey = hint.hintText.slice(0, Math.min(20, hint.hintText.length));
+              const lines = content.split('\n');
+              let lineNumber = -1;
+              lines.forEach((line, idx) => {
+                if (fuzzyMatch(line, hintKey)) {
+                  lineNumber = idx + 1;
+                }
+              });
 
+              warnings.push({
+                id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                chapterId,
+                plotPointId: plotPoint.id,
+                plotPoint,
+                severity: 'info',
+                message: `检测到伏笔"${plotPoint.title}"的线索：${hint.hintText}。请确保与后续情节保持一致。`,
+                lineNumber: lineNumber > 0 ? lineNumber : undefined,
+                createdAt: new Date(),
+                resolved: false,
+              });
+            }
+          }
+        });
+
+        if (plotPoint.status === 'pending' && isRelatedChapter) {
+          const hasResolvedHint = plotPoint.hints.some(h =>
+            h.chapterId === chapterId && fuzzyMatch(content, h.hintText)
+          );
+          if (!hasResolvedHint) {
+            warnings.push({
+              id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              chapterId,
+              plotPointId: plotPoint.id,
+              plotPoint,
+              severity: 'warning',
+              message: `本章关联了伏笔"${plotPoint.title}"，但该伏笔尚未解决。如果本章内容涉及该伏笔的进展，请更新伏笔状态。`,
+              createdAt: new Date(),
+              resolved: false,
+            });
+          }
+        }
+
+        const descMentioned = fuzzyMatch(content, plotPoint.title) ||
+          (plotPoint.description.length > 5 && fuzzyMatch(content, plotPoint.description.slice(0, 30)));
+        if (descMentioned && plotPoint.status === 'pending') {
+          const alreadyWarned = warnings.some(w => w.plotPointId === plotPoint.id);
+          if (!alreadyWarned) {
             warnings.push({
               id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               chapterId,
               plotPointId: plotPoint.id,
               plotPoint,
               severity: 'info',
-              message: `检测到伏笔"${plotPoint.title}"的线索：${hint.hintText}。请确保与后续情节保持一致。`,
-              lineNumber: lineNumber > 0 ? lineNumber : undefined,
+              message: `本章内容提到了伏笔"${plotPoint.title}"相关内容，请确保情节连贯。`,
               createdAt: new Date(),
               resolved: false,
             });
           }
-        });
-
-        if (plotPoint.status === 'pending' && isRelatedChapter) {
-          warnings.push({
-            id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            chapterId,
-            plotPointId: plotPoint.id,
-            plotPoint,
-            severity: 'warning',
-            message: `本章关联了伏笔"${plotPoint.title}"，但该伏笔尚未解决。如果本章内容涉及该伏笔的进展，请更新伏笔状态。`,
-            createdAt: new Date(),
-            resolved: false,
-          });
         }
       }
     });
 
-    const existingIds = get().conflictWarnings.filter(c => c.chapterId === chapterId).map(c => c.id);
-    const newWarnings = warnings.filter(w => !existingIds.includes(w.id));
+    state.characters
+      .filter(c => c.projectId === chapter.projectId)
+      .forEach(character => {
+        if (content.includes(character.name)) {
+          const relatedAppearance = character.appearances.find(a => a.chapterId === chapterId);
+          if (!relatedAppearance) {
+            warnings.push({
+              id: `conflict-char-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              chapterId,
+              characterId: character.id,
+              character,
+              severity: 'info',
+              message: `人物"${character.name}"在本章被提及，但未标记出场。`,
+              createdAt: new Date(),
+              resolved: false,
+            });
+          }
+        }
+      });
 
-    if (newWarnings.length > 0) {
-      set(state => ({
-        conflictWarnings: [...state.conflictWarnings, ...newWarnings],
-      }));
-    }
+    set(state => ({
+      conflictWarnings: [
+        ...state.conflictWarnings.filter(c => c.chapterId !== chapterId || c.resolved),
+        ...warnings,
+      ],
+    }));
 
-    return [...get().conflictWarnings.filter(c => c.chapterId === chapterId)];
+    return warnings;
   },
 
   resolveConflict: (conflictId: string) => {
@@ -286,132 +343,157 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   exportToPdf: async (config: PdfExportConfig) => {
     set({ isLoading: true });
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+    const html2canvas = (await import('html2canvas')).default;
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = config.margin;
-    const contentWidth = pageWidth - margin.left - margin.right;
-
-    let y = margin.top;
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.style.width = '210mm';
+    container.style.padding = '20mm 25mm';
+    container.style.backgroundColor = '#ffffff';
+    container.style.fontFamily = '"PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif';
+    container.style.fontSize = '12pt';
+    container.style.lineHeight = '1.8';
+    container.style.color = '#1a1a1a';
 
     if (config.includeCover) {
-      doc.setFillColor(30, 58, 95);
-      doc.rect(0, 0, pageWidth, pageHeight, 'F');
+      const cover = document.createElement('div');
+      cover.style.height = '297mm';
+      cover.style.display = 'flex';
+      cover.style.flexDirection = 'column';
+      cover.style.justifyContent = 'center';
+      cover.style.alignItems = 'center';
+      cover.style.backgroundColor = '#1e3a5f';
+      cover.style.color = '#ffffff';
+      cover.style.margin = '-20mm -25mm 20mm -25mm';
+      cover.style.padding = '20mm 25mm';
+      cover.style.pageBreakAfter = 'always';
 
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(36);
-      doc.setFont('helvetica', 'bold');
-      const titleLines = doc.splitTextToSize(config.title, contentWidth);
-      titleLines.forEach((line: string, i: number) => {
-        doc.text(line, pageWidth / 2, pageHeight / 2 - 20 + i * 14, { align: 'center' });
-      });
+      const titleEl = document.createElement('h1');
+      titleEl.textContent = config.title;
+      titleEl.style.fontSize = '36pt';
+      titleEl.style.fontWeight = 'bold';
+      titleEl.style.textAlign = 'center';
+      titleEl.style.marginBottom = '30px';
+      titleEl.style.fontFamily = 'inherit';
+      cover.appendChild(titleEl);
 
       if (config.author) {
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(212, 175, 55);
-        doc.text(config.author, pageWidth / 2, pageHeight / 2 + 20, { align: 'center' });
+        const authorEl = document.createElement('p');
+        authorEl.textContent = config.author;
+        authorEl.style.fontSize = '14pt';
+        authorEl.style.color = '#d4af37';
+        authorEl.style.textAlign = 'center';
+        authorEl.style.fontFamily = 'inherit';
+        cover.appendChild(authorEl);
       }
 
-      doc.addPage();
-      y = margin.top;
+      container.appendChild(cover);
     }
 
     if (config.includeToc) {
-      doc.setFontSize(20);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 58, 95);
-      doc.text('目录', margin.left, y);
-      y += 15;
+      const toc = document.createElement('div');
+      toc.style.marginBottom = '20px';
+      toc.style.pageBreakAfter = 'always';
 
-      doc.setFontSize(config.fontSize);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0, 0, 0);
+      const tocTitle = document.createElement('h2');
+      tocTitle.textContent = '目录';
+      tocTitle.style.fontSize = '20pt';
+      tocTitle.style.fontWeight = 'bold';
+      tocTitle.style.color = '#1e3a5f';
+      tocTitle.style.marginBottom = '15px';
+      tocTitle.style.fontFamily = 'inherit';
+      toc.appendChild(tocTitle);
 
-      let tocY = y;
+      const tocList = document.createElement('div');
       config.chapterIds.forEach((chapterId, index) => {
         const chapter = get().chapters.find(c => c.id === chapterId);
         if (chapter) {
-          doc.text(`${index + 1}. ${chapter.title}`, margin.left, tocY);
-          doc.text(`... ${index + 2}`, pageWidth - margin.right, tocY, { align: 'right' });
-          tocY += 8;
-          if (tocY > pageHeight - margin.bottom) {
-            doc.addPage();
-            tocY = margin.top;
-          }
+          const item = document.createElement('div');
+          item.style.display = 'flex';
+          item.style.justifyContent = 'space-between';
+          item.style.marginBottom = '8px';
+          item.style.fontSize = '12pt';
+          item.innerHTML = `<span>${index + 1}. ${chapter.title}</span><span>................</span>`;
+          tocList.appendChild(item);
         }
       });
-
-      doc.addPage();
-      y = margin.top;
+      toc.appendChild(tocList);
+      container.appendChild(toc);
     }
 
-    let pageNum = config.includeCover ? 2 : 1;
-    if (config.includeToc) pageNum++;
-
-    config.chapterIds.forEach((chapterId, chapIdx) => {
+    config.chapterIds.forEach((chapterId) => {
       const chapter = get().chapters.find(c => c.id === chapterId);
       if (!chapter) return;
 
-      if (chapIdx > 0 || config.includeToc || config.includeCover) {
-        if (y > margin.top) {
-          doc.addPage();
-          pageNum++;
-          y = margin.top;
-        }
-      }
+      const chapterDiv = document.createElement('div');
+      chapterDiv.style.pageBreakBefore = 'always';
+      chapterDiv.style.marginBottom = '20px';
 
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 58, 95);
-      doc.text(chapter.title, margin.left, y);
-      y += 12;
+      const titleEl = document.createElement('h2');
+      titleEl.textContent = chapter.title;
+      titleEl.style.fontSize = '18pt';
+      titleEl.style.fontWeight = 'bold';
+      titleEl.style.color = '#1e3a5f';
+      titleEl.style.marginBottom = '12px';
+      titleEl.style.paddingBottom = '8px';
+      titleEl.style.borderBottom = '2px solid #d4af37';
+      titleEl.style.fontFamily = 'inherit';
+      chapterDiv.appendChild(titleEl);
 
-      doc.setDrawColor(212, 175, 55);
-      doc.setLineWidth(0.5);
-      doc.line(margin.left, y, margin.left + 40, y);
-      y += 8;
+      const contentEl = document.createElement('div');
+      contentEl.style.whiteSpace = 'pre-wrap';
+      contentEl.style.fontSize = `${config.fontSize}pt`;
+      contentEl.style.lineHeight = String(config.lineHeight);
+      contentEl.style.fontFamily = 'inherit';
+      contentEl.textContent = chapter.content;
+      chapterDiv.appendChild(contentEl);
 
-      doc.setFontSize(config.fontSize);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0, 0, 0);
-      doc.setLineHeightFactor(config.lineHeight);
-
-      const lines = doc.splitTextToSize(chapter.content, contentWidth);
-      lines.forEach((line: string) => {
-        if (y > pageHeight - margin.bottom - 10) {
-          if (config.includePageNumbers) {
-            doc.setFontSize(10);
-            doc.setTextColor(128, 128, 128);
-            doc.text(`- ${pageNum} -`, pageWidth / 2, pageHeight - margin.bottom / 2, { align: 'center' });
-          }
-          doc.addPage();
-          pageNum++;
-          y = margin.top;
-          doc.setFontSize(config.fontSize);
-          doc.setTextColor(0, 0, 0);
-        }
-        doc.text(line, margin.left, y);
-        y += config.fontSize * config.lineHeight * 0.35;
-      });
-
-      if (config.includePageNumbers) {
-        doc.setFontSize(10);
-        doc.setTextColor(128, 128, 128);
-        doc.text(`- ${pageNum} -`, pageWidth / 2, pageHeight - margin.bottom / 2, { align: 'center' });
-      }
+      container.appendChild(chapterDiv);
     });
 
-    doc.save(`${config.title || '小说'}.pdf`);
-    set({ isLoading: false });
+    document.body.appendChild(container);
+
+    try {
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pageHeight = 297;
+      let position = 0;
+
+      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+
+      let remainingHeight = imgHeight - pageHeight;
+      while (remainingHeight > 0) {
+        position -= pageHeight;
+        doc.addPage();
+        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        remainingHeight -= pageHeight;
+      }
+
+      doc.save(`${config.title || '小说'}.pdf`);
+    } finally {
+      document.body.removeChild(container);
+      set({ isLoading: false });
+    }
   },
 
   createChapter: async (projectId: string, title: string, parentId?: string): Promise<Chapter> => {
@@ -448,16 +530,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  createCharacter: async (character): Promise<Character> => {
+  createProject: async (title: string, description: string): Promise<Project> => {
     await new Promise(resolve => setTimeout(resolve, 300));
-    const newCharacter: Character = {
-      ...character,
-      id: `char-${Date.now()}`,
+    const state = get();
+    const newProject: Project = {
+      id: `project-${Date.now()}`,
+      title,
+      description,
+      creatorId: state.currentUser.id,
       createdAt: new Date(),
       updatedAt: new Date(),
-      relationships: [],
-      appearances: [],
-    } as Character;
+      members: [{
+        userId: state.currentUser.id,
+        user: state.currentUser,
+        role: 'creator',
+        joinedAt: new Date(),
+      }],
+    };
+
+    set(state => ({
+      projects: [...state.projects, newProject],
+    }));
+
+    return newProject;
+  },
+
+  createCharacter: async (character): Promise<Character> => {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const now = new Date();
+    const newCharacter: Character = {
+      projectId: character.projectId,
+      name: character.name,
+      avatarUrl: character.avatarUrl,
+      description: character.description,
+      traits: character.traits,
+      relationships: character.relationships || [],
+      appearances: character.appearances || [],
+      id: `char-${Date.now()}`,
+      createdAt: now,
+      updatedAt: now,
+    };
 
     set(state => ({
       characters: [...state.characters, newCharacter],
@@ -479,10 +591,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   createPlotPoint: async (plotPoint): Promise<PlotPoint> => {
     await new Promise(resolve => setTimeout(resolve, 300));
     const newPlotPoint: PlotPoint = {
-      ...plotPoint,
+      projectId: plotPoint.projectId,
+      title: plotPoint.title,
+      description: plotPoint.description,
+      type: plotPoint.type,
+      status: plotPoint.status,
+      relatedChapterIds: plotPoint.relatedChapterIds,
+      relatedCharacterIds: plotPoint.relatedCharacterIds,
+      hints: plotPoint.hints || [],
       id: `plot-${Date.now()}`,
       createdAt: new Date(),
-      hints: [],
     };
 
     set(state => ({
@@ -520,5 +638,37 @@ export const useAppStore = create<AppState>((set, get) => ({
           : p
       ),
     }));
+  },
+
+  checkExpiredLocks: () => {
+    const now = new Date();
+    set(state => ({
+      chapters: state.chapters.map(c => {
+        if (c.lock && new Date(c.lock.expiresAt) <= now) {
+          return { ...c, lock: undefined };
+        }
+        return c;
+      }),
+      currentChapter: state.currentChapter?.lock && new Date(state.currentChapter.lock.expiresAt) <= now
+        ? { ...state.currentChapter, lock: undefined }
+        : state.currentChapter,
+    }));
+  },
+
+  autoSaveWithVersion: async (chapterId: string, content: string) => {
+    const state = get();
+    const chapter = state.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    await state.updateChapterContent(chapterId, content);
+
+    const versions = state.getChapterVersions(chapterId);
+    const lastAutoVersion = versions.find(v => v.changeSummary.startsWith('自动保存：'));
+    const shouldCreateVersion = !lastAutoVersion ||
+      (new Date().getTime() - new Date(lastAutoVersion.createdAt).getTime() > 5 * 60 * 1000);
+
+    if (shouldCreateVersion) {
+      await state.createVersion(chapterId, `自动保存：${new Date().toLocaleString()}`);
+    }
   },
 }));

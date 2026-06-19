@@ -13,14 +13,21 @@ import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
 
 export default function ProjectsList() {
-  const { projects, currentUser } = useAppStore();
+  const { projects, currentUser, createProject } = useAppStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProject, setNewProject] = useState({ title: '', description: '' });
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleCreate = () => {
-    if (!newProject.title.trim()) return;
-    setShowCreateModal(false);
-    setNewProject({ title: '', description: '' });
+  const handleCreate = async () => {
+    if (!newProject.title.trim() || isCreating) return;
+    setIsCreating(true);
+    try {
+      await createProject(newProject.title.trim(), newProject.description.trim());
+      setShowCreateModal(false);
+      setNewProject({ title: '', description: '' });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -209,9 +216,9 @@ export default function ProjectsList() {
                 <button
                   onClick={handleCreate}
                   className="btn-gold flex-1"
-                  disabled={!newProject.title.trim()}
+                  disabled={!newProject.title.trim() || isCreating}
                 >
-                  创建
+                  {isCreating ? '创建中...' : '创建'}
                 </button>
               </div>
             </div>

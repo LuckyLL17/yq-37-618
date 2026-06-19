@@ -24,11 +24,12 @@ import type { PlotPoint, PlotPointType, PlotPointStatus } from '@shared/types';
 
 export default function PlotManager() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { plotPoints, chapters, conflictWarnings } = useAppStore();
+  const { plotPoints, chapters, conflictWarnings, createPlotPoint } = useAppStore();
 
   const [selectedType, setSelectedType] = useState<PlotPointType | 'all'>('all');
   const [expandedPlot, setExpandedPlot] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [newPlot, setNewPlot] = useState({
     title: '',
     description: '',
@@ -60,6 +61,33 @@ export default function PlotManager() {
 
   const getChapterTitle = (chapterId: string) => {
     return chapters.find(c => c.id === chapterId)?.title || '未知章节';
+  };
+
+  const handleCreatePlot = async () => {
+    if (!newPlot.title.trim() || !projectId || isCreating) return;
+    setIsCreating(true);
+    try {
+      await createPlotPoint({
+        projectId,
+        title: newPlot.title.trim(),
+        description: newPlot.description.trim(),
+        type: newPlot.type,
+        status: newPlot.status,
+        relatedChapterIds: newPlot.relatedChapterIds,
+        relatedCharacterIds: newPlot.relatedCharacterIds,
+      });
+      setShowCreateModal(false);
+      setNewPlot({
+        title: '',
+        description: '',
+        type: 'foreshadow',
+        status: 'pending',
+        relatedChapterIds: [],
+        relatedCharacterIds: [],
+      });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const unresolvedConflicts = conflictWarnings.filter(
@@ -405,10 +433,11 @@ export default function PlotManager() {
                   取消
                 </button>
                 <button
+                  onClick={handleCreatePlot}
                   className="btn-gold flex-1"
-                  disabled={!newPlot.title.trim()}
+                  disabled={!newPlot.title.trim() || isCreating}
                 >
-                  创建情节
+                  {isCreating ? '创建中...' : '创建情节'}
                 </button>
               </div>
             </div>
