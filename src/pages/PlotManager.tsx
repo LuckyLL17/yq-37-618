@@ -24,7 +24,7 @@ import type { PlotPoint, PlotPointType, PlotPointStatus } from '@shared/types';
 
 export default function PlotManager() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { plotPoints, chapters, conflictWarnings } = useAppStore();
+  const { plotPoints, chapters, conflictWarnings, createPlotPoint } = useAppStore();
 
   const [selectedType, setSelectedType] = useState<PlotPointType | 'all'>('all');
   const [expandedPlot, setExpandedPlot] = useState<string | null>(null);
@@ -71,6 +71,28 @@ export default function PlotManager() {
     pending: projectPlots.filter(p => p.status === 'pending').length,
     active: projectPlots.filter(p => p.status === 'active').length,
     resolved: projectPlots.filter(p => p.status === 'resolved').length,
+  };
+
+  const handleCreatePlot = async () => {
+    if (!newPlot.title.trim() || !projectId) return;
+    await createPlotPoint({
+      projectId,
+      title: newPlot.title.trim(),
+      description: newPlot.description.trim(),
+      type: newPlot.type,
+      status: newPlot.status,
+      relatedChapterIds: newPlot.relatedChapterIds,
+      relatedCharacterIds: newPlot.relatedCharacterIds,
+    });
+    setNewPlot({
+      title: '',
+      description: '',
+      type: 'foreshadow',
+      status: 'pending',
+      relatedChapterIds: [],
+      relatedCharacterIds: [],
+    });
+    setShowCreateModal(false);
   };
 
   return (
@@ -405,6 +427,7 @@ export default function PlotManager() {
                   取消
                 </button>
                 <button
+                  onClick={handleCreatePlot}
                   className="btn-gold flex-1"
                   disabled={!newPlot.title.trim()}
                 >

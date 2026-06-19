@@ -31,6 +31,8 @@ export default function ChapterEditor() {
     updateChapterTitle,
     lockChapter,
     unlockChapter,
+    releaseExpiredLocks,
+    isLockExpired,
     createVersion,
     checkConflicts,
     resolveConflict,
@@ -63,13 +65,24 @@ export default function ChapterEditor() {
     if (currentChapter) {
       setContent(currentChapter.content);
       setTitle(currentChapter.title);
-      setIsLockedByMe(currentChapter.lock?.userId === currentUser.id);
+      const chapterFromStore = chapters.find(c => c.id === currentChapter.id);
+      const lockExpired = chapterFromStore?.lock ? isLockExpired(chapterFromStore.lock) : true;
+      setIsLockedByMe(chapterFromStore?.lock?.userId === currentUser.id && !lockExpired);
       setLastSaved(null);
       if (currentChapter.id) {
         checkConflicts(currentChapter.id).then(setConflicts);
       }
     }
-  }, [currentChapter, currentUser.id, checkConflicts]);
+  }, [currentChapter, currentUser.id, checkConflicts, chapters, isLockExpired]);
+
+  useEffect(() => {
+    releaseExpiredLocks();
+    const interval = setInterval(() => {
+      releaseExpiredLocks();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [releaseExpiredLocks]);
 
   const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
@@ -118,6 +131,8 @@ export default function ChapterEditor() {
   const relatedCharacters = currentChapter ? getCharactersForChapter(currentChapter.id) : [];
   const relatedPlotPoints = currentChapter ? getPlotPointsForChapter(currentChapter.id) : [];
   const unresolvedConflicts = conflicts.filter(c => !c.resolved);
+  const currentChapterLock = currentChapter?.lock && !isLockExpired(currentChapter.lock) ? currentChapter.lock : null;
+  const effectiveLockedByMe = currentChapterLock?.userId === currentUser.id;
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6">
@@ -132,8 +147,9 @@ export default function ChapterEditor() {
           <div className="flex-1 overflow-y-auto scrollbar-thin space-y-1">
             {projectChapters.map((chapter, index) => {
               const isActive = currentChapter?.id === chapter.id;
-              const isLocked = !!chapter.lock;
-              const isLockedByOther = isLocked && chapter.lock?.userId !== currentUser.id;
+              const chapterLock = chapter.lock && !isLockExpired(chapter.lock) ? chapter.lock : undefined;
+              const isLocked = !!chapterLock;
+              const isLockedByOther = isLocked && chapterLock?.userId !== currentUser.id;
 
               return (
                 <Link
@@ -159,7 +175,7 @@ export default function ChapterEditor() {
                   </span>
                   {isLocked && (
                     <span
-                      title={isLockedByOther ? `被 ${chapter.lock?.user.username} 锁定` : '已被您锁定'}
+                      title={isLockedByOther ? `被 ${chapterLock?.user.username} 锁定` : '已被您锁定'}
                     >
                       <Lock
                         className={cn(
@@ -193,11 +209,11 @@ export default function ChapterEditor() {
                     onBlur={() => updateChapterTitle(currentChapter.id, title)}
                     className={cn(
                       'font-serif text-2xl font-bold bg-transparent border-none outline-none w-full',
-                      isLockedByMe
+                      effectiveLockedByMe
                         ? 'text-ink-800 focus:ring-2 focus:ring-gold-200 rounded px-2'
                         : 'text-ink-500 cursor-not-allowed'
                     )}
-                    disabled={!isLockedByMe}
+                    disabled={!effectiveLockedByMe}
                   />
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -211,7 +227,7 @@ export default function ChapterEditor() {
                       已自动保存
                     </div>
                   )}
-                  {isLockedByMe ? (
+                  {effectiveLockedByMe ? (
                     <>
                       <button
                         onClick={() => setShowVersionModal(true)}
@@ -235,15 +251,15 @@ export default function ChapterEditor() {
                         解锁
                       </button>
                     </>
-                  ) : currentChapter.lock ? (
+                  ) : currentChapterLock ? (
                     <div className="flex items-center gap-2 px-4 py-2 bg-brick-50 rounded-lg border border-brick-200">
                       <Lock className="w-4 h-4 text-brick-500" />
                       <div className="text-sm">
                         <div className="text-brick-700 font-medium">
-                          被 {currentChapter.lock.user.username} 锁定
+                          被 {currentChapterLock.user.username} 锁定
                         </div>
                         <div className="text-brick-500 text-xs">
-                          {currentChapter.lock.expiresAt && `将在 ${new Date(currentChapter.lock.expiresAt).toLocaleTimeString()} 过期`}
+                          {currentChapterLock.expiresAt && `将在 ${new Date(currentChapterLock.expiresAt).toLocaleTimeString()} 过期`}
                         </div>
                       </div>
                     </div>
@@ -265,13 +281,13 @@ export default function ChapterEditor() {
               <textarea
                 value={content}
                 onChange={(e) => handleContentChange(e.target.value)}
-                disabled={!isLockedByMe}
-                placeholder={isLockedByMe ? '开始创作...' : '章节已被锁定，无法编辑'}
+                disabled={!effectiveLockedByMe}
+                placeholder={effectiveLockedByMe ? '开始创作...' : '章节已被锁定或未锁定，无法编辑'}
                 className={cn(
                   'flex-1 w-full p-8 resize-none bg-paper-50/50 paper-bg font-serif text-lg leading-8 text-ink-800',
                   'outline-none border-none scrollbar-thin',
-                  !isLockedByMe && 'cursor-not-allowed opacity-60',
-                  isLockedByMe && 'animate-pulse-gold'
+                  !effectiveLockedByMe && 'cursor-not-allowed opacity-60',
+                  effectiveLockedByMe && 'animate-pulse-gold'
                 )}
                 spellCheck={false}
               />
