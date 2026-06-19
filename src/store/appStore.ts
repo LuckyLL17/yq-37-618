@@ -110,57 +110,60 @@ const loadPersistedState = () => {
 
 const persisted = loadPersistedState();
 
-const initialState = {
+const initialProjects = (() => {
+  if (persisted && Array.isArray(persisted.projects) && persisted.projects.length > 0) {
+    return persisted.projects;
+  }
+  return mockProjects;
+})();
+
+const initialChapters = (() => {
+  if (persisted && Array.isArray(persisted.chapters)) {
+    return persisted.chapters;
+  }
+  return mockChapters;
+})();
+
+const initialChapterVersions = (() => {
+  if (persisted && Array.isArray(persisted.chapterVersions)) {
+    return persisted.chapterVersions;
+  }
+  return mockChapterVersions;
+})();
+
+const initialCharacters = (() => {
+  if (persisted && Array.isArray(persisted.characters)) {
+    return persisted.characters;
+  }
+  return mockCharacters;
+})();
+
+const initialPlotPoints = (() => {
+  if (persisted && Array.isArray(persisted.plotPoints)) {
+    return persisted.plotPoints;
+  }
+  return mockPlotPoints;
+})();
+
+const initialConflictWarnings = (() => {
+  if (persisted && Array.isArray(persisted.conflictWarnings)) {
+    return persisted.conflictWarnings;
+  }
+  return mockConflictWarnings;
+})();
+
+export const useAppStore = create<AppState>()((set, get) => ({
   currentUser: mockCurrentUser,
   users: mockUsers,
-  projects: mockProjects,
-  currentProject: null as Project | null,
-  chapters: mockChapters,
-  currentChapter: null as Chapter | null,
-  chapterVersions: mockChapterVersions,
-  characters: mockCharacters,
-  plotPoints: mockPlotPoints,
-  conflictWarnings: mockConflictWarnings,
+  projects: initialProjects,
+  currentProject: null,
+  chapters: initialChapters,
+  currentChapter: null,
+  chapterVersions: initialChapterVersions,
+  characters: initialCharacters,
+  plotPoints: initialPlotPoints,
+  conflictWarnings: initialConflictWarnings,
   isLoading: false,
-};
-
-const mergedInitialState = persisted
-  ? {
-      ...initialState,
-      projects: persisted.projects || initialState.projects,
-      chapters: persisted.chapters || initialState.chapters,
-      chapterVersions: persisted.chapterVersions || initialState.chapterVersions,
-      characters: persisted.characters || initialState.characters,
-      plotPoints: persisted.plotPoints || initialState.plotPoints,
-      conflictWarnings: persisted.conflictWarnings || initialState.conflictWarnings,
-      currentProject: null,
-      currentChapter: null,
-    }
-  : initialState;
-
-const persistMiddleware = (config: any) => (set: any, get: any, api: any) => {
-  const savedSet = (partial: any, replace?: any) => {
-    set(partial, replace);
-    const state = get();
-    const toPersist = {
-      projects: state.projects,
-      chapters: state.chapters,
-      chapterVersions: state.chapterVersions,
-      characters: state.characters,
-      plotPoints: state.plotPoints,
-      conflictWarnings: state.conflictWarnings,
-    };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
-    } catch (e) {
-      console.warn('Failed to persist state:', e);
-    }
-  };
-  return config(savedSet, get, api);
-};
-
-export const useAppStore = create<AppState>()(persistMiddleware((set, get) => ({
-  ...mergedInitialState,
 
   setCurrentProject: (projectId: string) => {
     const project = get().projects.find(p => p.id === projectId) || null;
@@ -763,4 +766,20 @@ export const useAppStore = create<AppState>()(persistMiddleware((set, get) => ({
       ),
     }));
   },
-})));
+}));
+
+useAppStore.subscribe((state) => {
+  try {
+    const toPersist = {
+      projects: state.projects,
+      chapters: state.chapters,
+      chapterVersions: state.chapterVersions,
+      characters: state.characters,
+      plotPoints: state.plotPoints,
+      conflictWarnings: state.conflictWarnings,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
+  } catch (e) {
+    console.warn('Failed to persist state:', e);
+  }
+});
