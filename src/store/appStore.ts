@@ -757,24 +757,123 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'moyun-app-store',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
+      // 关键：剥离掉所有反向对象引用，只保留 id 字段，避免循环引用导致 JSON.stringify 抛错
       partialize: (state) => ({
-        projects: state.projects,
-        chapters: state.chapters,
-        chapterVersions: state.chapterVersions,
-        characters: state.characters,
-        plotPoints: state.plotPoints,
-        conflictWarnings: state.conflictWarnings,
         users: state.users,
         currentUser: state.currentUser,
+        projects: state.projects.map(p => ({
+          ...p,
+          // members[*].user 会指回 users，序列化时不需要存对象，hydrate 再挂回来
+          members: p.members.map(({ user: _user, ...m }) => m),
+        })),
+        chapters: state.chapters.map(c => {
+          if (!c.lock) return c;
+          const { user: _u, ...lockRest } = c.lock;
+          return { ...c, lock: lockRest };
+        }),
+        chapterVersions: state.chapterVersions.map(({ author: _a, ...v }) => v),
+        characters: state.characters.map(c => ({
+          ...c,
+          // relationships[*].target 是循环引用源头，必须剥离
+          relationships: c.relationships.map(({ target: _t, ...rel }) => rel),
+          // appearances[*].chapter 也是对象引用，只保留 chapterId
+          appearances: c.appearances.map(({ chapter: _c, ...app }) => app),
+        })),
+        plotPoints: state.plotPoints.map(p => ({
+          ...p,
+          hints: p.hints.map(({ chapter: _c, ...h }) => h),
+        })),
+        conflictWarnings: state.conflictWarnings.map(
+          ({ plotPoint: _p, character: _c, ...w }) => w
+        ),
       }),
       merge: (persistedState, currentState) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return currentState;
         }
-        const revived = reviveDates(persistedState as Record<string, unknown>, DATE_KEYS);
-        return { ...currentState, ...revived } as AppState;
+        const revived = reviveDates(
+          persistedState as Record<string, unknown>,
+          DATE_KEYS
+        ) as Partial<AppState>;
+
+        const users = revived.users ?? currentState.users;
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        // 复水项目成员的 user 字段
+        const projects = (revived.projects ?? currentState.projects).map(p => ({
+          ...p,
+          members: p.members.map(m => ({
+            ...m,
+            user: userMap.get(m.userId) ?? currentState.currentUser,
+          })),
+        }));
+
+        // 章节锁的 user 字段
+        const chapters = (revived.chapters ?? currentState.chapters).map(c => {
+          if (!c.lock) return c;
+          return {
+            ...c,
+            lock: {
+              ...c.lock,
+              user: userMap.get(c.lock.userId) ?? currentState.currentUser,
+            },
+          };
+        });
+        const chapterMap = new Map(chapters.map(c => [c.id, c]));
+
+        // 版本作者
+        const chapterVersions = (revived.chapterVersions ?? currentState.chapterVersions).map(v => ({
+          ...v,
+          author: userMap.get(v.authorId) ?? currentState.currentUser,
+        }));
+
+        // 人物先 hydrate，再用 id 互相挂接 target / chapter
+        const charactersFlat = (revived.characters ?? currentState.characters).map(c => ({
+          ...c,
+          appearances: c.appearances.map(a => ({
+            ...a,
+            chapter: chapterMap.get(a.chapterId) ?? ({} as Chapter),
+          })),
+        }));
+        const charMap = new Map(charactersFlat.map(c => [c.id, c]));
+        const characters = charactersFlat.map(c => ({
+          ...c,
+          relationships: c.relationships.map(rel => ({
+            ...rel,
+            target: charMap.get(rel.targetId),
+          })),
+        }));
+
+        // 情节线索
+        const plotPoints = (revived.plotPoints ?? currentState.plotPoints).map(p => ({
+          ...p,
+          hints: p.hints.map(h => ({
+            ...h,
+            chapter: h.chapterId ? chapterMap.get(h.chapterId) : undefined,
+          })),
+        }));
+        const plotMap = new Map(plotPoints.map(p => [p.id, p]));
+
+        // 冲突警告反挂 plotPoint / character
+        const conflictWarnings = (revived.conflictWarnings ?? currentState.conflictWarnings).map(w => ({
+          ...w,
+          plotPoint: w.plotPointId ? plotMap.get(w.plotPointId) : undefined,
+          character: w.characterId ? charMap.get(w.characterId) : undefined,
+        }));
+
+        return {
+          ...currentState,
+          users,
+          currentUser: revived.currentUser ?? currentState.currentUser,
+          projects,
+          chapters,
+          chapterVersions,
+          characters,
+          plotPoints,
+          conflictWarnings,
+        };
       },
     }
   )
