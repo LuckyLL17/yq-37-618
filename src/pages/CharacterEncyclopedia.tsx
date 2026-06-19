@@ -6,12 +6,12 @@ import {
   Search,
   X,
   Edit3,
-  Trash2,
   User,
   Calendar,
   FileText,
   Link,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
@@ -19,7 +19,7 @@ import type { Character } from '@shared/types';
 
 export default function CharacterEncyclopedia() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { characters, chapters, createCharacter } = useAppStore();
+  const { characters, chapters, createCharacter, pendingAction } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -31,6 +31,8 @@ export default function CharacterEncyclopedia() {
   });
   const [traitKey, setTraitKey] = useState('');
   const [traitValue, setTraitValue] = useState('');
+
+  const isSubmitting = pendingAction === 'createCharacter';
 
   const projectCharacters = characters.filter(c => c.projectId === projectId);
   const filteredCharacters = projectCharacters.filter(c =>
@@ -58,15 +60,21 @@ export default function CharacterEncyclopedia() {
 
   const handleCreateCharacter = async () => {
     if (!newCharacter.name.trim() || !projectId) return;
-    await createCharacter({
-      projectId,
-      name: newCharacter.name.trim(),
-      description: newCharacter.description.trim(),
-      traits: newCharacter.traits,
-      avatarUrl: undefined,
-    });
-    setNewCharacter({ name: '', description: '', traits: {} });
-    setShowCreateModal(false);
+    try {
+      await createCharacter({
+        projectId,
+        name: newCharacter.name.trim(),
+        description: newCharacter.description.trim(),
+        traits: newCharacter.traits,
+        avatarUrl: undefined,
+        relationships: [],
+        appearances: [],
+      });
+      setNewCharacter({ name: '', description: '', traits: {} });
+      setShowCreateModal(false);
+    } catch {
+      // error handled by store and shown via global Toast
+    }
   };
 
   const getChapterTitle = (chapterId: string) => {
@@ -398,10 +406,15 @@ export default function CharacterEncyclopedia() {
                 </button>
                 <button
                   onClick={handleCreateCharacter}
-                  className="btn-gold flex-1"
-                  disabled={!newCharacter.name.trim()}
+                  className="btn-gold flex-1 flex items-center justify-center gap-2"
+                  disabled={!newCharacter.name.trim() || isSubmitting}
                 >
-                  创建人物
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      创建中...
+                    </>
+                  ) : '创建人物'}
                 </button>
               </div>
             </div>

@@ -16,6 +16,7 @@ import {
   Clock,
   Edit3,
   BookOpen,
+  Loader2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
@@ -39,7 +40,7 @@ export default function ChapterEditor() {
     getCharactersForChapter,
     getPlotPointsForChapter,
     currentUser,
-    isLoading,
+    pendingAction,
   } = useAppStore();
 
   const [content, setContent] = useState('');
@@ -51,6 +52,11 @@ export default function ChapterEditor() {
   const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [sidebarTab, setSidebarTab] = useState<'info' | 'conflicts'>('info');
+
+  const isLocking = pendingAction === 'lockChapter';
+  const isUnlocking = pendingAction === 'unlockChapter';
+  const isSavingVersion = pendingAction === 'createVersion';
+  const isAutoSaving = pendingAction === 'updateChapterContent';
 
   const projectChapters = chapters.filter(c => c.projectId === projectId);
 
@@ -221,7 +227,13 @@ export default function ChapterEditor() {
                     <BookOpen className="w-4 h-4" />
                     {handleWordCount(content).toLocaleString()} 字
                   </div>
-                  {lastSaved && (
+                  {isAutoSaving && (
+                    <div className="text-sm text-blue-600 flex items-center gap-1">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      自动保存中...
+                    </div>
+                  )}
+                  {lastSaved && !isAutoSaving && (
                     <div className="text-sm text-green-600 flex items-center gap-1">
                       <CheckCircle2 className="w-4 h-4" />
                       已自动保存
@@ -232,8 +244,13 @@ export default function ChapterEditor() {
                       <button
                         onClick={() => setShowVersionModal(true)}
                         className="btn-secondary flex items-center gap-2 text-sm"
+                        disabled={isSavingVersion}
                       >
-                        <Save className="w-4 h-4" />
+                        {isSavingVersion ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4" />
+                        )}
                         保存版本
                       </button>
                       <Link
@@ -246,8 +263,13 @@ export default function ChapterEditor() {
                       <button
                         onClick={handleUnlock}
                         className="btn-secondary flex items-center gap-2 text-sm"
+                        disabled={isUnlocking}
                       >
-                        <Unlock className="w-4 h-4" />
+                        {isUnlocking ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Unlock className="w-4 h-4" />
+                        )}
                         解锁
                       </button>
                     </>
@@ -267,10 +289,14 @@ export default function ChapterEditor() {
                     <button
                       onClick={handleLock}
                       className="btn-gold flex items-center gap-2 text-sm"
-                      disabled={isLoading}
+                      disabled={isLocking}
                     >
-                      <Lock className="w-4 h-4" />
-                      {isLoading ? '锁定中...' : '锁定并编辑'}
+                      {isLocking ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Lock className="w-4 h-4" />
+                      )}
+                      {isLocking ? '锁定中...' : '锁定并编辑'}
                     </button>
                   )}
                 </div>
@@ -353,7 +379,7 @@ export default function ChapterEditor() {
                             className="flex items-center gap-3 p-2 bg-paper-100 rounded-lg"
                           >
                             <img
-                              src={char.avatarUrl}
+                              src={char.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${char.id}`}
                               alt={char.name}
                               className="w-8 h-8 rounded-full"
                             />
@@ -538,10 +564,15 @@ export default function ChapterEditor() {
               </button>
               <button
                 onClick={handleSaveVersion}
-                className="btn-gold flex-1"
-                disabled={!versionSummary.trim()}
+                className="btn-gold flex-1 flex items-center justify-center gap-2"
+                disabled={!versionSummary.trim() || isSavingVersion}
               >
-                确认保存
+                {isSavingVersion ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    保存中...
+                  </>
+                ) : '确认保存'}
               </button>
             </div>
           </div>
