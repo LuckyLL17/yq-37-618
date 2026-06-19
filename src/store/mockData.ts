@@ -355,7 +355,6 @@ export const mockCharacters: Character[] = [
         id: 'rel-1',
         characterId: 'char-1',
         targetId: 'char-2',
-        target: {} as any,
         type: '恋人',
         description: '与苏婉是恋人关系，在航行中相互扶持',
       },
@@ -363,7 +362,6 @@ export const mockCharacters: Character[] = [
         id: 'rel-2',
         characterId: 'char-1',
         targetId: 'char-3',
-        target: {} as any,
         type: '上下级',
         description: '舰长对林远十分信任，常采纳他的建议',
       },
@@ -407,7 +405,6 @@ export const mockCharacters: Character[] = [
         id: 'rel-3',
         characterId: 'char-2',
         targetId: 'char-1',
-        target: {} as any,
         type: '恋人',
         description: '与林远是恋人关系',
       },
@@ -498,10 +495,6 @@ export const mockCharacters: Character[] = [
     updatedAt: new Date('2026-06-10'),
   },
 ];
-
-mockCharacters[0].relationships[0].target = mockCharacters[1];
-mockCharacters[0].relationships[1].target = mockCharacters[2];
-mockCharacters[1].relationships[0].target = mockCharacters[0];
 
 export const mockPlotPoints: PlotPoint[] = [
   {

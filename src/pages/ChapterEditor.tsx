@@ -35,7 +35,6 @@ export default function ChapterEditor() {
     createChapter,
     checkConflicts,
     resolveConflict,
-    checkExpiredLocks,
     autoSaveWithVersion,
     getCharactersForChapter,
     getPlotPointsForChapter,
@@ -45,15 +44,16 @@ export default function ChapterEditor() {
 
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
-  const [isLockedByMe, setIsLockedByMe] = useState(false);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionSummary, setVersionSummary] = useState('');
   const [conflicts, setConflicts] = useState<ConflictWarning[]>([]);
-  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
+  const [autoSaveTimer, setAutoSaveTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [sidebarTab, setSidebarTab] = useState<'info' | 'conflicts'>('info');
 
   const projectChapters = chapters.filter(c => c.projectId === projectId);
+  const liveChapter = chapters.find(c => c.id === chapterId);
+  const isLockedByMe = liveChapter?.lock?.userId === currentUser.id;
 
   useEffect(() => {
     if (chapterId) {
@@ -66,31 +66,18 @@ export default function ChapterEditor() {
     if (currentChapter) {
       setContent(currentChapter.content);
       setTitle(currentChapter.title);
-      setIsLockedByMe(currentChapter.lock?.userId === currentUser.id);
       setLastSaved(null);
       if (currentChapter.id) {
         checkConflicts(currentChapter.id).then(setConflicts);
       }
     }
-  }, [currentChapter, currentUser.id, checkConflicts]);
+  }, [currentChapter, checkConflicts]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      checkExpiredLocks();
-      const state = useAppStore.getState();
-      if (state.currentChapter) {
-        const chapter = state.chapters.find(c => c.id === state.currentChapter?.id);
-        if (chapter) {
-          const stillLocked = chapter.lock?.userId === currentUser.id;
-          setIsLockedByMe(stillLocked);
-        }
-      }
-    }, 10000);
-
-    checkExpiredLocks();
-
-    return () => clearInterval(interval);
-  }, [checkExpiredLocks, currentUser.id]);
+    if (liveChapter?.lock?.userId !== currentUser.id) {
+      setLastSaved(null);
+    }
+  }, [liveChapter?.lock?.userId, currentUser.id]);
 
   const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
@@ -121,16 +108,12 @@ export default function ChapterEditor() {
 
   const handleLock = async () => {
     if (!currentChapter) return;
-    const success = await lockChapter(currentChapter.id);
-    if (success) {
-      setIsLockedByMe(true);
-    }
+    await lockChapter(currentChapter.id);
   };
 
   const handleUnlock = async () => {
     if (!currentChapter) return;
     await unlockChapter(currentChapter.id);
-    setIsLockedByMe(false);
   };
 
   const handleSaveVersion = async () => {
@@ -267,15 +250,15 @@ export default function ChapterEditor() {
                         解锁
                       </button>
                     </>
-                  ) : currentChapter.lock ? (
+                  ) : liveChapter?.lock ? (
                     <div className="flex items-center gap-2 px-4 py-2 bg-brick-50 rounded-lg border border-brick-200">
                       <Lock className="w-4 h-4 text-brick-500" />
                       <div className="text-sm">
                         <div className="text-brick-700 font-medium">
-                          被 {currentChapter.lock.user.username} 锁定
+                          被 {liveChapter.lock.user.username} 锁定
                         </div>
                         <div className="text-brick-500 text-xs">
-                          {currentChapter.lock.expiresAt && `将在 ${new Date(currentChapter.lock.expiresAt).toLocaleTimeString()} 过期`}
+                          {liveChapter.lock.expiresAt && `将在 ${new Date(liveChapter.lock.expiresAt).toLocaleTimeString()} 过期`}
                         </div>
                       </div>
                     </div>
