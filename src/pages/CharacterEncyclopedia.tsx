@@ -19,7 +19,7 @@ import type { Character } from '@shared/types';
 
 export default function CharacterEncyclopedia() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { characters, chapters } = useAppStore();
+  const { characters, chapters, createCharacter } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -54,6 +54,20 @@ export default function CharacterEncyclopedia() {
       delete traits[key];
       return { ...prev, traits };
     });
+  };
+
+  const handleCreateCharacter = async () => {
+    if (!newCharacter.name.trim() || !projectId) return;
+    await createCharacter({
+      projectId,
+      name: newCharacter.name,
+      description: newCharacter.description,
+      traits: { ...newCharacter.traits },
+    });
+    setShowCreateModal(false);
+    setNewCharacter({ name: '', description: '', traits: {} });
+    setTraitKey('');
+    setTraitValue('');
   };
 
   const getChapterTitle = (chapterId: string) => {
@@ -190,7 +204,7 @@ export default function CharacterEncyclopedia() {
                         <div className="text-xs text-ink-400 uppercase tracking-wider mb-1">
                           {key}
                         </div>
-                        <div className="text-ink-700 font-medium">{value as string}</div>
+                        <div className="text-ink-700 font-medium">{String(value)}</div>
                       </div>
                     ))}
                   </div>
@@ -384,6 +398,7 @@ export default function CharacterEncyclopedia() {
                   取消
                 </button>
                 <button
+                  onClick={handleCreateCharacter}
                   className="btn-gold flex-1"
                   disabled={!newCharacter.name.trim()}
                 >

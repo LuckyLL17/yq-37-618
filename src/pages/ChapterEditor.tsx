@@ -78,7 +78,7 @@ export default function ChapterEditor() {
     
     const timer = setTimeout(async () => {
       if (currentChapter && isLockedByMe) {
-        await updateChapterContent(currentChapter.id, newContent);
+        await updateChapterContent(currentChapter.id, newContent, true);
         setLastSaved(new Date());
         if (currentChapter.id) {
           const newConflicts = await checkConflicts(currentChapter.id);

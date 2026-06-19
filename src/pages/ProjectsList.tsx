@@ -13,12 +13,16 @@ import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
 
 export default function ProjectsList() {
-  const { projects, currentUser } = useAppStore();
+  const { projects, currentUser, createProject } = useAppStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProject, setNewProject] = useState({ title: '', description: '' });
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newProject.title.trim()) return;
+    await createProject({
+      title: newProject.title,
+      description: newProject.description,
+    });
     setShowCreateModal(false);
     setNewProject({ title: '', description: '' });
   };
