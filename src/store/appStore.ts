@@ -68,18 +68,99 @@ const dmp = new diff_match_patch();
 
 let lockCheckInterval: NodeJS.Timeout | null = null;
 
-export const useAppStore = create<AppState>((set, get) => ({
+const STORAGE_KEY = 'ink-rhythm-app-state';
+
+const reviveDates = <T>(obj: T): T => {
+  if (obj === null || obj === undefined) return obj;
+  if (obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(reviveDates) as unknown as T;
+  if (typeof obj === 'object') {
+    const result: any = {};
+    for (const key in obj) {
+      const value = (obj as any)[key];
+      if (
+        typeof value === 'string' &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)
+      ) {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          result[key] = date;
+          continue;
+        }
+      }
+      result[key] = reviveDates(value);
+    }
+    return result;
+  }
+  return obj;
+};
+
+const loadPersistedState = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return reviveDates(parsed);
+    }
+  } catch (e) {
+    console.warn('Failed to load persisted state:', e);
+  }
+  return null;
+};
+
+const persisted = loadPersistedState();
+
+const initialState = {
   currentUser: mockCurrentUser,
   users: mockUsers,
   projects: mockProjects,
-  currentProject: null,
+  currentProject: null as Project | null,
   chapters: mockChapters,
-  currentChapter: null,
+  currentChapter: null as Chapter | null,
   chapterVersions: mockChapterVersions,
   characters: mockCharacters,
   plotPoints: mockPlotPoints,
   conflictWarnings: mockConflictWarnings,
   isLoading: false,
+};
+
+const mergedInitialState = persisted
+  ? {
+      ...initialState,
+      projects: persisted.projects || initialState.projects,
+      chapters: persisted.chapters || initialState.chapters,
+      chapterVersions: persisted.chapterVersions || initialState.chapterVersions,
+      characters: persisted.characters || initialState.characters,
+      plotPoints: persisted.plotPoints || initialState.plotPoints,
+      conflictWarnings: persisted.conflictWarnings || initialState.conflictWarnings,
+      currentProject: null,
+      currentChapter: null,
+    }
+  : initialState;
+
+const persistMiddleware = (config: any) => (set: any, get: any, api: any) => {
+  const savedSet = (partial: any, replace?: any) => {
+    set(partial, replace);
+    const state = get();
+    const toPersist = {
+      projects: state.projects,
+      chapters: state.chapters,
+      chapterVersions: state.chapterVersions,
+      characters: state.characters,
+      plotPoints: state.plotPoints,
+      conflictWarnings: state.conflictWarnings,
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist));
+    } catch (e) {
+      console.warn('Failed to persist state:', e);
+    }
+  };
+  return config(savedSet, get, api);
+};
+
+export const useAppStore = create<AppState>()(persistMiddleware((set, get) => ({
+  ...mergedInitialState,
 
   setCurrentProject: (projectId: string) => {
     const project = get().projects.find(p => p.id === projectId) || null;
@@ -682,4 +763,4 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }));
   },
-}));
+})));
