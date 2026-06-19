@@ -58,7 +58,7 @@ export interface CharacterRelation {
   id: string;
   characterId: string;
   targetId: string;
-  target: Character;
+  target?: Character;
   type: string;
   description?: string;
 }

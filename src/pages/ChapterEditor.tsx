@@ -31,6 +31,7 @@ export default function ChapterEditor() {
     updateChapterTitle,
     lockChapter,
     unlockChapter,
+    releaseExpiredLocks,
     createVersion,
     checkConflicts,
     resolveConflict,
@@ -48,6 +49,8 @@ export default function ChapterEditor() {
   const [conflicts, setConflicts] = useState<ConflictWarning[]>([]);
   const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [lastAutoVersionAt, setLastAutoVersionAt] = useState<Date | null>(null);
+  const [lastAutoVersionContent, setLastAutoVersionContent] = useState<string>('');
   const [sidebarTab, setSidebarTab] = useState<'info' | 'conflicts'>('info');
 
   const projectChapters = chapters.filter(c => c.projectId === projectId);
@@ -60,11 +63,21 @@ export default function ChapterEditor() {
   }, [chapterId, setCurrentChapter]);
 
   useEffect(() => {
+    releaseExpiredLocks();
+    const intervalId = window.setInterval(() => {
+      releaseExpiredLocks();
+    }, 30 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [releaseExpiredLocks]);
+
+  useEffect(() => {
     if (currentChapter) {
       setContent(currentChapter.content);
       setTitle(currentChapter.title);
       setIsLockedByMe(currentChapter.lock?.userId === currentUser.id);
       setLastSaved(null);
+      setLastAutoVersionAt(null);
+      setLastAutoVersionContent(currentChapter.content);
       if (currentChapter.id) {
         checkConflicts(currentChapter.id).then(setConflicts);
       }
@@ -73,22 +86,39 @@ export default function ChapterEditor() {
 
   const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
-    
+
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    
+
     const timer = setTimeout(async () => {
       if (currentChapter && isLockedByMe) {
         await updateChapterContent(currentChapter.id, newContent);
         setLastSaved(new Date());
+
+        const now = new Date();
+        const deltaChars = Math.abs(newContent.length - lastAutoVersionContent.length);
+        const elapsedMs = lastAutoVersionAt ? now.getTime() - lastAutoVersionAt.getTime() : Infinity;
+        const shouldCreateAutoVersion =
+          newContent !== lastAutoVersionContent &&
+          (deltaChars >= 200 || elapsedMs >= 5 * 60 * 1000);
+
+        if (shouldCreateAutoVersion) {
+          await createVersion(
+            currentChapter.id,
+            `自动保存 - ${now.toLocaleString()}（约 ${deltaChars} 字变更）`
+          );
+          setLastAutoVersionAt(now);
+          setLastAutoVersionContent(newContent);
+        }
+
         if (currentChapter.id) {
           const newConflicts = await checkConflicts(currentChapter.id);
           setConflicts(newConflicts);
         }
       }
     }, 2000);
-    
+
     setAutoSaveTimer(timer);
-  }, [currentChapter, isLockedByMe, autoSaveTimer, updateChapterContent, checkConflicts]);
+  }, [currentChapter, isLockedByMe, autoSaveTimer, updateChapterContent, checkConflicts, createVersion, lastAutoVersionAt, lastAutoVersionContent]);
 
   const handleLock = async () => {
     if (!currentChapter) return;

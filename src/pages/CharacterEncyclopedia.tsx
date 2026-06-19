@@ -19,7 +19,8 @@ import type { Character } from '@shared/types';
 
 export default function CharacterEncyclopedia() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { characters, chapters } = useAppStore();
+  const { characters, chapters, createCharacter } = useAppStore();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -54,6 +55,28 @@ export default function CharacterEncyclopedia() {
       delete traits[key];
       return { ...prev, traits };
     });
+  };
+
+  const handleCreateCharacter = async () => {
+    if (!newCharacter.name.trim() || !projectId || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const created = await createCharacter({
+        projectId,
+        name: newCharacter.name.trim(),
+        description: newCharacter.description.trim(),
+        traits: { ...newCharacter.traits },
+        relationships: [],
+        appearances: [],
+      });
+      setNewCharacter({ name: '', description: '', traits: {} });
+      setTraitKey('');
+      setTraitValue('');
+      setShowCreateModal(false);
+      setSelectedCharacter(created);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getChapterTitle = (chapterId: string) => {
@@ -385,9 +408,10 @@ export default function CharacterEncyclopedia() {
                 </button>
                 <button
                   className="btn-gold flex-1"
-                  disabled={!newCharacter.name.trim()}
+                  disabled={!newCharacter.name.trim() || isSubmitting}
+                  onClick={handleCreateCharacter}
                 >
-                  创建人物
+                  {isSubmitting ? '创建中...' : '创建人物'}
                 </button>
               </div>
             </div>

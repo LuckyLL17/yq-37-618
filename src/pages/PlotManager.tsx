@@ -24,11 +24,12 @@ import type { PlotPoint, PlotPointType, PlotPointStatus } from '@shared/types';
 
 export default function PlotManager() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { plotPoints, chapters, conflictWarnings } = useAppStore();
+  const { plotPoints, chapters, conflictWarnings, createPlotPoint } = useAppStore();
 
   const [selectedType, setSelectedType] = useState<PlotPointType | 'all'>('all');
   const [expandedPlot, setExpandedPlot] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newPlot, setNewPlot] = useState({
     title: '',
     description: '',
@@ -71,6 +72,34 @@ export default function PlotManager() {
     pending: projectPlots.filter(p => p.status === 'pending').length,
     active: projectPlots.filter(p => p.status === 'active').length,
     resolved: projectPlots.filter(p => p.status === 'resolved').length,
+  };
+
+  const handleCreatePlot = async () => {
+    if (!newPlot.title.trim() || !projectId || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await createPlotPoint({
+        projectId,
+        title: newPlot.title.trim(),
+        description: newPlot.description.trim(),
+        type: newPlot.type,
+        status: newPlot.status,
+        relatedChapterIds: [...newPlot.relatedChapterIds],
+        relatedCharacterIds: [...newPlot.relatedCharacterIds],
+        hints: [],
+      });
+      setNewPlot({
+        title: '',
+        description: '',
+        type: 'foreshadow',
+        status: 'pending',
+        relatedChapterIds: [],
+        relatedCharacterIds: [],
+      });
+      setShowCreateModal(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -406,9 +435,10 @@ export default function PlotManager() {
                 </button>
                 <button
                   className="btn-gold flex-1"
-                  disabled={!newPlot.title.trim()}
+                  disabled={!newPlot.title.trim() || isSubmitting}
+                  onClick={handleCreatePlot}
                 >
-                  创建情节
+                  {isSubmitting ? '创建中...' : '创建情节'}
                 </button>
               </div>
             </div>
