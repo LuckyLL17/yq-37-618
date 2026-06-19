@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   User,
   Project,
@@ -61,7 +62,36 @@ interface AppState {
 
 const dmp = new diff_match_patch();
 
-export const useAppStore = create<AppState>((set, get) => ({
+const reviveDates = <T,>(value: T, keys: string[]): T => {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(v => reviveDates(v, keys)) as unknown as T;
+  }
+  const result: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  for (const k of Object.keys(result)) {
+    const v = result[k];
+    if (keys.includes(k) && typeof v === 'string') {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) result[k] = d;
+    } else if (v && typeof v === 'object') {
+      result[k] = reviveDates(v, keys);
+    }
+  }
+  return result as T;
+};
+
+const DATE_KEYS = [
+  'createdAt',
+  'updatedAt',
+  'joinedAt',
+  'lockedAt',
+  'expiresAt',
+  'resolvedAt',
+];
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   currentUser: mockCurrentUser,
   users: mockUsers,
   projects: mockProjects,
@@ -724,4 +754,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }));
   },
-}));
+    }),
+    {
+      name: 'moyun-app-store',
+      version: 1,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        projects: state.projects,
+        chapters: state.chapters,
+        chapterVersions: state.chapterVersions,
+        characters: state.characters,
+        plotPoints: state.plotPoints,
+        conflictWarnings: state.conflictWarnings,
+        users: state.users,
+        currentUser: state.currentUser,
+      }),
+      merge: (persistedState, currentState) => {
+        if (!persistedState || typeof persistedState !== 'object') {
+          return currentState;
+        }
+        const revived = reviveDates(persistedState as Record<string, unknown>, DATE_KEYS);
+        return { ...currentState, ...revived } as AppState;
+      },
+    }
+  )
+);
