@@ -8,19 +8,31 @@ import {
   Calendar,
   ChevronRight,
   X,
+  Loader2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
 
 export default function ProjectsList() {
-  const { projects, currentUser } = useAppStore();
+  const { projects, currentUser, createProject, pendingAction } = useAppStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProject, setNewProject] = useState({ title: '', description: '' });
 
-  const handleCreate = () => {
+  const isSubmitting = pendingAction === 'createProject';
+
+  const handleCreate = async () => {
     if (!newProject.title.trim()) return;
-    setShowCreateModal(false);
-    setNewProject({ title: '', description: '' });
+    try {
+      await createProject({
+        title: newProject.title.trim(),
+        description: newProject.description.trim(),
+        creatorId: currentUser.id,
+      });
+      setShowCreateModal(false);
+      setNewProject({ title: '', description: '' });
+    } catch {
+      // error is handled by store and shown via global Toast
+    }
   };
 
   return (
@@ -208,10 +220,15 @@ export default function ProjectsList() {
                 </button>
                 <button
                   onClick={handleCreate}
-                  className="btn-gold flex-1"
-                  disabled={!newProject.title.trim()}
+                  className="btn-gold flex-1 flex items-center justify-center gap-2"
+                  disabled={!newProject.title.trim() || isSubmitting}
                 >
-                  创建
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      创建中...
+                    </>
+                  ) : '创建'}
                 </button>
               </div>
             </div>

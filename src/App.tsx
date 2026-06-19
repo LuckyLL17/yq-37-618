@@ -7,10 +7,12 @@ import CharacterEncyclopedia from "@/pages/CharacterEncyclopedia";
 import PlotManager from "@/pages/PlotManager";
 import ExportCenter from "@/pages/ExportCenter";
 import ProjectLayout from "@/components/ProjectLayout";
+import ToastNotification from "@/components/ToastNotification";
 
 export default function App() {
   return (
     <Router>
+      <ToastNotification />
       <Routes>
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsList />} />

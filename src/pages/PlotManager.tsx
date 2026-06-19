@@ -17,6 +17,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { cn } from '@/lib/utils';
@@ -24,7 +25,7 @@ import type { PlotPoint, PlotPointType, PlotPointStatus } from '@shared/types';
 
 export default function PlotManager() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { plotPoints, chapters, conflictWarnings } = useAppStore();
+  const { plotPoints, chapters, conflictWarnings, createPlotPoint, pendingAction } = useAppStore();
 
   const [selectedType, setSelectedType] = useState<PlotPointType | 'all'>('all');
   const [expandedPlot, setExpandedPlot] = useState<string | null>(null);
@@ -37,6 +38,8 @@ export default function PlotManager() {
     relatedChapterIds: [] as string[],
     relatedCharacterIds: [] as string[],
   });
+
+  const isSubmitting = pendingAction === 'createPlotPoint';
 
   const projectPlots = plotPoints.filter(p => p.projectId === projectId);
   const filteredPlots = selectedType === 'all'
@@ -71,6 +74,33 @@ export default function PlotManager() {
     pending: projectPlots.filter(p => p.status === 'pending').length,
     active: projectPlots.filter(p => p.status === 'active').length,
     resolved: projectPlots.filter(p => p.status === 'resolved').length,
+  };
+
+  const handleCreatePlot = async () => {
+    if (!newPlot.title.trim() || !projectId) return;
+    try {
+      await createPlotPoint({
+        projectId,
+        title: newPlot.title.trim(),
+        description: newPlot.description.trim(),
+        type: newPlot.type,
+        status: newPlot.status,
+        relatedChapterIds: newPlot.relatedChapterIds,
+        relatedCharacterIds: newPlot.relatedCharacterIds,
+        hints: [],
+      });
+      setNewPlot({
+        title: '',
+        description: '',
+        type: 'foreshadow',
+        status: 'pending',
+        relatedChapterIds: [],
+        relatedCharacterIds: [],
+      });
+      setShowCreateModal(false);
+    } catch {
+      // error handled by store and shown via global Toast
+    }
   };
 
   return (
@@ -405,10 +435,16 @@ export default function PlotManager() {
                   取消
                 </button>
                 <button
-                  className="btn-gold flex-1"
-                  disabled={!newPlot.title.trim()}
+                  onClick={handleCreatePlot}
+                  className="btn-gold flex-1 flex items-center justify-center gap-2"
+                  disabled={!newPlot.title.trim() || isSubmitting}
                 >
-                  创建情节
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      创建中...
+                    </>
+                  ) : '创建情节'}
                 </button>
               </div>
             </div>
