@@ -32,8 +32,10 @@ export default function ChapterEditor() {
     lockChapter,
     unlockChapter,
     createVersion,
+    createChapter,
     checkConflicts,
     resolveConflict,
+    autoSaveWithVersion,
     getCharactersForChapter,
     getPlotPointsForChapter,
     currentUser,
@@ -42,15 +44,16 @@ export default function ChapterEditor() {
 
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
-  const [isLockedByMe, setIsLockedByMe] = useState(false);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionSummary, setVersionSummary] = useState('');
   const [conflicts, setConflicts] = useState<ConflictWarning[]>([]);
-  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
+  const [autoSaveTimer, setAutoSaveTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [sidebarTab, setSidebarTab] = useState<'info' | 'conflicts'>('info');
 
   const projectChapters = chapters.filter(c => c.projectId === projectId);
+  const liveChapter = chapters.find(c => c.id === chapterId);
+  const isLockedByMe = liveChapter?.lock?.userId === currentUser.id;
 
   useEffect(() => {
     if (chapterId) {
@@ -63,13 +66,18 @@ export default function ChapterEditor() {
     if (currentChapter) {
       setContent(currentChapter.content);
       setTitle(currentChapter.title);
-      setIsLockedByMe(currentChapter.lock?.userId === currentUser.id);
       setLastSaved(null);
       if (currentChapter.id) {
         checkConflicts(currentChapter.id).then(setConflicts);
       }
     }
-  }, [currentChapter, currentUser.id, checkConflicts]);
+  }, [currentChapter, checkConflicts]);
+
+  useEffect(() => {
+    if (liveChapter?.lock?.userId !== currentUser.id) {
+      setLastSaved(null);
+    }
+  }, [liveChapter?.lock?.userId, currentUser.id]);
 
   const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
@@ -78,7 +86,7 @@ export default function ChapterEditor() {
     
     const timer = setTimeout(async () => {
       if (currentChapter && isLockedByMe) {
-        await updateChapterContent(currentChapter.id, newContent);
+        await autoSaveWithVersion(currentChapter.id, newContent);
         setLastSaved(new Date());
         if (currentChapter.id) {
           const newConflicts = await checkConflicts(currentChapter.id);
@@ -88,20 +96,24 @@ export default function ChapterEditor() {
     }, 2000);
     
     setAutoSaveTimer(timer);
-  }, [currentChapter, isLockedByMe, autoSaveTimer, updateChapterContent, checkConflicts]);
+  }, [currentChapter, isLockedByMe, autoSaveTimer, autoSaveWithVersion, checkConflicts]);
+
+  const handleCreateChapter = async () => {
+    if (!projectId) return;
+    const title = prompt('请输入新章节标题：');
+    if (!title?.trim()) return;
+    const newChapter = await createChapter(projectId, title.trim());
+    window.location.href = `/projects/${projectId}/chapters/${newChapter.id}`;
+  };
 
   const handleLock = async () => {
     if (!currentChapter) return;
-    const success = await lockChapter(currentChapter.id);
-    if (success) {
-      setIsLockedByMe(true);
-    }
+    await lockChapter(currentChapter.id);
   };
 
   const handleUnlock = async () => {
     if (!currentChapter) return;
     await unlockChapter(currentChapter.id);
-    setIsLockedByMe(false);
   };
 
   const handleSaveVersion = async () => {
@@ -173,7 +185,10 @@ export default function ChapterEditor() {
               );
             })}
           </div>
-          <button className="mt-4 btn-secondary w-full flex items-center justify-center gap-2 text-sm">
+          <button
+            onClick={handleCreateChapter}
+            className="mt-4 btn-secondary w-full flex items-center justify-center gap-2 text-sm"
+          >
             <Plus className="w-4 h-4" />
             新建章节
           </button>
@@ -235,15 +250,15 @@ export default function ChapterEditor() {
                         解锁
                       </button>
                     </>
-                  ) : currentChapter.lock ? (
+                  ) : liveChapter?.lock ? (
                     <div className="flex items-center gap-2 px-4 py-2 bg-brick-50 rounded-lg border border-brick-200">
                       <Lock className="w-4 h-4 text-brick-500" />
                       <div className="text-sm">
                         <div className="text-brick-700 font-medium">
-                          被 {currentChapter.lock.user.username} 锁定
+                          被 {liveChapter.lock.user.username} 锁定
                         </div>
                         <div className="text-brick-500 text-xs">
-                          {currentChapter.lock.expiresAt && `将在 ${new Date(currentChapter.lock.expiresAt).toLocaleTimeString()} 过期`}
+                          {liveChapter.lock.expiresAt && `将在 ${new Date(liveChapter.lock.expiresAt).toLocaleTimeString()} 过期`}
                         </div>
                       </div>
                     </div>

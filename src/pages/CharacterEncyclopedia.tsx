@@ -19,11 +19,12 @@ import type { Character } from '@shared/types';
 
 export default function CharacterEncyclopedia() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { characters, chapters } = useAppStore();
+  const { characters, chapters, createCharacter, currentUser } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [newCharacter, setNewCharacter] = useState({
     name: '',
     description: '',
@@ -54,6 +55,24 @@ export default function CharacterEncyclopedia() {
       delete traits[key];
       return { ...prev, traits };
     });
+  };
+
+  const handleCreateCharacter = async () => {
+    if (!newCharacter.name.trim() || !projectId || isCreating) return;
+    setIsCreating(true);
+    try {
+      const created = await createCharacter({
+        projectId,
+        name: newCharacter.name.trim(),
+        description: newCharacter.description.trim(),
+        traits: newCharacter.traits,
+      });
+      setSelectedCharacter(created);
+      setShowCreateModal(false);
+      setNewCharacter({ name: '', description: '', traits: {} });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const getChapterTitle = (chapterId: string) => {
@@ -384,10 +403,11 @@ export default function CharacterEncyclopedia() {
                   取消
                 </button>
                 <button
+                  onClick={handleCreateCharacter}
                   className="btn-gold flex-1"
-                  disabled={!newCharacter.name.trim()}
+                  disabled={!newCharacter.name.trim() || isCreating}
                 >
-                  创建人物
+                  {isCreating ? '创建中...' : '创建人物'}
                 </button>
               </div>
             </div>
