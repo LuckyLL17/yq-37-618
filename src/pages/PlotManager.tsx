@@ -24,7 +24,7 @@ import type { PlotPoint, PlotPointType, PlotPointStatus } from '@shared/types';
 
 export default function PlotManager() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { plotPoints, chapters, conflictWarnings } = useAppStore();
+  const { plotPoints, chapters, conflictWarnings, createPlotPoint } = useAppStore();
 
   const [selectedType, setSelectedType] = useState<PlotPointType | 'all'>('all');
   const [expandedPlot, setExpandedPlot] = useState<string | null>(null);
@@ -60,6 +60,28 @@ export default function PlotManager() {
 
   const getChapterTitle = (chapterId: string) => {
     return chapters.find(c => c.id === chapterId)?.title || '未知章节';
+  };
+
+  const handleCreatePlotPoint = async () => {
+    if (!newPlot.title.trim() || !projectId) return;
+    await createPlotPoint({
+      projectId,
+      title: newPlot.title,
+      description: newPlot.description,
+      type: newPlot.type,
+      status: newPlot.status,
+      relatedChapterIds: [...newPlot.relatedChapterIds],
+      relatedCharacterIds: [...newPlot.relatedCharacterIds],
+    });
+    setShowCreateModal(false);
+    setNewPlot({
+      title: '',
+      description: '',
+      type: 'foreshadow',
+      status: 'pending',
+      relatedChapterIds: [],
+      relatedCharacterIds: [],
+    });
   };
 
   const unresolvedConflicts = conflictWarnings.filter(
@@ -405,6 +427,7 @@ export default function PlotManager() {
                   取消
                 </button>
                 <button
+                  onClick={handleCreatePlotPoint}
                   className="btn-gold flex-1"
                   disabled={!newPlot.title.trim()}
                 >
